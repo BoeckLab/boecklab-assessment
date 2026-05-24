@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boeck Lab -- Reasoning Assessment</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { min-height: 100vh; background: #0B0F1A; }
+  body { font-family: 'Outfit', sans-serif; -webkit-font-smoothing: antialiased; }
+  /* anti-copy layer: applied during the GRADED phase only.
+     Personality phase needs typing, so we don't lock selection there. */
+  body.in-graded { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
+  textarea, input { font-family: 'Outfit', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+/* ============================================================
+   CONFIGURATION
+   ============================================================ */
+
+// Apps Script web app URL (see apps_script/Code.gs and SETUP-GUIDE):
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxzOtw0lbB-Ql2mPnI-uQwMV2-ogOcUEASVDIOIOQ_BYg4aMRiIpQlX0llFDeZRqxuqGg/exec";
+
+const ASSESSMENT_TITLE = "Boeck Lab Reasoning Assessment";
+
+/* ============================================================ */
+
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+const C = {
+  bg:"#0B0F1A",surface:"#131825",surfaceHi:"#1A2035",
+  border:"#252E45",borderHi:"#3A4668",
+  accent:"#4AE8C1",accentDim:"#2A8B73",
+  warn:"#FF6B6B",warnDim:"#8B3A3A",
+  text:"#E8ECF4",textDim:"#7B8AB0",textMuted:"#4A5578",
+  gold:"#F0C246",blue:"#5B8DEF",purple:"#A78BFA",
+  pink:"#EF5B8D",teal:"#5BEFE0",
+  ok:"#4AE8C1",
+};
+
+/* ============================================================
+   PRIMITIVE: CanvasText (uncopyable rendered text)
+   ============================================================ */
+function CanvasText({text,width=560,fontSize=14,color=C.text,fontFamily="Outfit",fontWeight="400",lineHeight=1.6,align="left",padding=0}){
+  const ref=useRef(null);
+  const [h,setH]=useState(30);
+  const dpr=window.devicePixelRatio||2;
+  const iw=width-padding*2;
+  useEffect(()=>{
+    const cv=ref.current;if(!cv)return;
+    const ctx=cv.getContext("2d");
+    const font=`${fontWeight} ${fontSize*dpr}px ${fontFamily}, sans-serif`;
+    ctx.font=font;
+    const words=String(text).split(" ");const lines=[];let line="";
+    for(const w of words){const t=line?line+" "+w:w;
+      if(ctx.measureText(t).width>iw*dpr){if(line)lines.push(line);line=w;}else line=t;}
+    if(line)lines.push(line);
+    const lh=fontSize*lineHeight*dpr;
+    const th=Math.ceil(lines.length*lh/dpr+padding*2+4);
+    setH(th);
+    requestAnimationFrame(()=>{
+      cv.width=width*dpr;cv.height=th*dpr;
+      const c=cv.getContext("2d");c.clearRect(0,0,cv.width,cv.height);
+      c.font=font;c.fillStyle=color;c.textBaseline="top";
+      const xo=align==="center"?(iw*dpr)/2+padding*dpr:padding*dpr;
+      if(align==="center")c.textAlign="center";
+      lines.forEach((l,i)=>c.fillText(l,xo,padding*dpr+i*lh+2*dpr));
+    });
+  },[text,width,fontSize,color,fontFamily,fontWeight,lineHeight,dpr,padding,iw]);
+  return <canvas ref={ref} style={{width,height:h,display:"block",userSelect:"none",WebkitUserSelect:"none",pointerEvents:"none"}}/>;
+}
+
+/* ============================================================
+   PRIMITIVE: GenericTable (SVG, uncopyable)
+   Used for L01, L02, L06, MI06, MB04 -- any tabular data.
+   ============================================================ */
+function GenericTable({headers, rows, colWidths, cellColor, width=520}){
+  const ncols = headers.length;
+  const cw = colWidths || Array(ncols).fill(width/ncols);
+  const headerH = 34;
+  const rowH = 30;
+  const h = headerH + rows.length*rowH + 8;
+  return (
+    <svg viewBox={`0 0 ${width} ${h}`} style={{width:"100%",maxWidth:width,display:"block",margin:"0 auto 16px",userSelect:"none"}}>
+      <rect width={width} height={h} rx={8} fill={C.surface}/>
+      {/* header */}
+      <rect x={0} y={0} width={width} height={headerH} fill={C.surfaceHi} rx={8}/>
+      <rect x={0} y={headerH-2} width={width} height={2} fill={C.border}/>
+      {headers.map((hd, i) => {
+        const x = cw.slice(0,i).reduce((s,v)=>s+v,0) + cw[i]/2;
+        return <text key={i} x={x} y={headerH/2+5} textAnchor="middle" fill={C.accent} fontSize={12} fontFamily="DM Mono" fontWeight={500}>{hd}</text>;
+      })}
+      {/* rows */}
+      {rows.map((row, ri) => (
+        <g key={ri}>
+          {ri%2===1 && <rect x={0} y={headerH+ri*rowH} width={width} height={rowH} fill={C.surfaceHi} opacity={0.4}/>}
+          {row.map((cell, ci) => {
+            const x = cw.slice(0,ci).reduce((s,v)=>s+v,0) + cw[ci]/2;
+            const y = headerH + ri*rowH + rowH/2 + 5;
+            const color = cellColor ? cellColor(cell, ri, ci) : (ci===0 ? C.text : C.textDim);
+            const fw = ci===0 ? 500 : 400;
+            return <text key={ci} x={x} y={y} textAnchor="middle" fill={color} fontSize={12.5} fontFamily="DM Mono" fontWeight={fw}>{cell}</text>;
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ============================================================
+   PRIMITIVE: GrowthCurves -- 4 OD curves vs time (MI03)
+   ============================================================ */
+function GrowthCurvesSVG(){
+  const W=480,H=260,pad=46;
+  // A: normal; B: extended lag, same plateau; C: fast plateau, low OD; D: similar to A but slower.
+  const curves={
+    A:{label:"A",pts:[[0,0.05],[1,0.08],[2,0.18],[3,0.5],[4,1.0],[5,1.35],[6,1.5],[7,1.5],[8,1.5]],color:C.accent},
+    B:{label:"B",pts:[[0,0.05],[1,0.05],[2,0.05],[3,0.07],[4,0.15],[5,0.5],[6,1.1],[7,1.4],[8,1.5]],color:C.gold},
+    C:{label:"C",pts:[[0,0.05],[1,0.1],[2,0.3],[3,0.5],[4,0.5],[5,0.5],[6,0.5],[7,0.5],[8,0.5]],color:C.blue},
+    D:{label:"D",pts:[[0,0.05],[1,0.07],[2,0.12],[3,0.3],[4,0.7],[5,1.1],[6,1.35],[7,1.45],[8,1.5]],color:C.pink},
+  };
+  const yMax=1.7;
+  const sx=v=>pad+(v/8)*(W-pad*2-30);
+  const sy=v=>H-pad-(v/yMax)*(H-pad*2);
+  const path=pts=>pts.map((p,i)=>`${i===0?"M":"L"}${sx(p[0])},${sy(p[1])}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",maxWidth:W,display:"block",margin:"0 auto 16px",userSelect:"none"}}>
+      <rect width={W} height={H} rx={8} fill={C.surface}/>
+      {[0,0.5,1,1.5].map(v=>(<g key={v}>
+        <line x1={pad} x2={W-pad-30} y1={sy(v)} y2={sy(v)} stroke={C.border} strokeWidth={0.5}/>
+        <text x={pad-6} y={sy(v)+4} textAnchor="end" fill={C.textMuted} fontSize={9} fontFamily="DM Mono">{v.toFixed(1)}</text>
+      </g>))}
+      {[0,2,4,6,8].map(v=>(<g key={v}>
+        <line x1={sx(v)} x2={sx(v)} y1={pad-10} y2={H-pad} stroke={C.border} strokeWidth={0.5}/>
+        <text x={sx(v)} y={H-pad+14} textAnchor="middle" fill={C.textMuted} fontSize={9} fontFamily="DM Mono">{v}h</text>
+      </g>))}
+      {Object.values(curves).map(c=>(
+        <path key={c.label} d={path(c.pts)} fill="none" stroke={c.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+      ))}
+      <text x={(W-30)/2} y={H-6} textAnchor="middle" fill={C.textMuted} fontSize={10} fontFamily="DM Mono">Time (hours)</text>
+      <text x={12} y={H/2} textAnchor="middle" fill={C.textMuted} fontSize={10} fontFamily="DM Mono" transform={`rotate(-90,12,${H/2})`}>OD600</text>
+      {Object.values(curves).map((c,i)=>(
+        <g key={c.label} transform={`translate(${W-pad-20},${pad+i*22})`}>
+          <line x1={0} x2={14} y1={0} y2={0} stroke={c.color} strokeWidth={2.5}/>
+          <text x={20} y={4} fill={C.textDim} fontSize={11} fontFamily="Outfit">Strain {c.label}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ============================================================
+   PRIMITIVE: TimeKillCurves -- biphasic kill kinetics (MI01)
+   ============================================================ */
+function TimeKillCurvesSVG(){
+  const W=460,H=240,pad=46;
+  // y-axis: log10 surviving fraction. start 0 (=100%); fast cluster -> -3 by 24h; slow cluster -> -0.3 by 72h.
+  const fast={pts:[[0,0],[6,-1],[24,-2.2],[48,-2.8],[72,-3]],color:C.accent,label:"~70% of isolates (fast killing)"};
+  const slow={pts:[[0,0],[6,-0.15],[24,-0.25],[48,-0.3],[72,-0.3]],color:C.warn,label:"~30% of isolates (slow killing)"};
+  const sx=v=>pad+(v/72)*(W-pad*2-10);
+  const sy=v=>pad+((-v)/3.2)*(H-pad*2);
+  const path=pts=>pts.map((p,i)=>`${i===0?"M":"L"}${sx(p[0])},${sy(p[1])}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",maxWidth:W,display:"block",margin:"0 auto 16px",userSelect:"none"}}>
+      <rect width={W} height={H} rx={8} fill={C.surface}/>
+      {[
+        {v:0,label:"100%"},
+        {v:-1,label:"10%"},
+        {v:-2,label:"1%"},
+        {v:-3,label:"0.1%"},
+      ].map(t=>(<g key={t.v}>
+        <line x1={pad} x2={W-pad-10} y1={sy(t.v)} y2={sy(t.v)} stroke={C.border} strokeWidth={0.5}/>
+        <text x={pad-6} y={sy(t.v)+4} textAnchor="end" fill={C.textMuted} fontSize={9} fontFamily="DM Mono">{t.label}</text>
+      </g>))}
+      {[0,24,48,72].map(v=>(<g key={v}>
+        <line x1={sx(v)} x2={sx(v)} y1={pad-10} y2={H-pad} stroke={C.border} strokeWidth={0.5}/>
+        <text x={sx(v)} y={H-pad+14} textAnchor="middle" fill={C.textMuted} fontSize={9} fontFamily="DM Mono">{v}h</text>
+      </g>))}
+      <path d={path(fast.pts)} fill="none" stroke={fast.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+      <path d={path(slow.pts)} fill="none" stroke={slow.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+      <text x={(W-10)/2} y={H-6} textAnchor="middle" fill={C.textMuted} fontSize={10} fontFamily="DM Mono">Time at 4x MIC (hours)</text>
+      <text x={12} y={H/2} textAnchor="middle" fill={C.textMuted} fontSize={10} fontFamily="DM Mono" transform={`rotate(-90,12,${H/2})`}>Viable cells vs start</text>
+      {/* Legend placed in the empty mid-right region between the slow plateau and the descending fast curve. */}
+      <g transform="translate(210, 110)">
+        <rect x={-6} y={-12} width={210} height={32} rx={4} fill={C.surface} opacity={0.85}/>
+        <line x1={0} x2={14} y1={0} y2={0} stroke={fast.color} strokeWidth={2.5}/>
+        <text x={20} y={4} fill={C.textDim} fontSize={10} fontFamily="Outfit">{fast.label}</text>
+        <line x1={0} x2={14} y1={14} y2={14} stroke={slow.color} strokeWidth={2.5}/>
+        <text x={20} y={18} fill={C.textDim} fontSize={10} fontFamily="Outfit">{slow.label}</text>
+      </g>
+    </svg>
+  );
+}
+
+/* ============================================================
+   PRIMITIVE: DoseResponseCurves -- two sigmoid curves (N05)
+   ============================================================ */
+function DoseResponseSVG(){
+  const W=460,H=240,pad=46;
+  // log10 dose from 0 to 4 (= 1 nM to 10,000 nM)
+  // WT IC50 = 100 nM = log10 2; Mutant IC50 = 1600 nM = log10 ~3.2
+  const sigmoid=(x,ic50)=>1/(1+Math.pow(10,2*(ic50-x))); // Hill slope 2
+  const wt=[],mu=[];
+  for(let x=0;x<=4;x+=0.1){wt.push([x,sigmoid(x,2)]);mu.push([x,sigmoid(x,Math.log10(1600))]);}
+  const sx=v=>pad+(v/4)*(W-pad*2-10);
+  const sy=v=>H-pad-v*(H-pad*2);
+  const path=pts=>pts.map((p,i)=>`${i===0?"M":"L"}${sx(p[0])},${sy(p[1])}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",maxWidth:W,display:"block",margin:"0 auto 16px",userSelect:"none"}}>
+      <rect width={W} height={H} rx={8} fill={C.surface}/>
+      {[0,0.25,0.5,0.75,1].map(v=>(<g key={v}>
+        <line x1={pad} x2={W-pad-10} y1={sy(v)} y2={sy(v)} stroke={C.border} strokeWidth={0.5}/>
+        <text x={pad-6} y={sy(v)+4} textAnchor="end" fill={C.textMuted} fontSize={9} fontFamily="DM Mono">{Math.round(v*100)}%</text>
+      </g>))}
+      {[0,1,2,3,4].map(v=>(<g key={v}>
+        <line x1={sx(v)} x2={sx(v)} y1={pad-10} y2={H-pad} stroke={C.border} strokeWidth={0.5}/>
+        <text x={sx(v)} y={H-pad+14} textAnchor="middle" fill={C.textMuted} fontSize={9} fontFamily="DM Mono">{`10^${v}`}</text>
+      </g>))}
+      <path d={path(wt)} fill="none" stroke={C.accent} strokeWidth={2.5} strokeLinecap="round"/>
+      <path d={path(mu)} fill="none" stroke={C.warn} strokeWidth={2.5} strokeLinecap="round"/>
+      <line x1={sx(2)} x2={sx(2)} y1={sy(0.5)} y2={H-pad} stroke={C.accent} strokeDasharray="3 3" strokeWidth={1}/>
+      <line x1={sx(Math.log10(1600))} x2={sx(Math.log10(1600))} y1={sy(0.5)} y2={H-pad} stroke={C.warn} strokeDasharray="3 3" strokeWidth={1}/>
+      <text x={(W-10)/2} y={H-6} textAnchor="middle" fill={C.textMuted} fontSize={10} fontFamily="DM Mono">Drug concentration (nM, log scale)</text>
+      <text x={12} y={H/2} textAnchor="middle" fill={C.textMuted} fontSize={10} fontFamily="DM Mono" transform={`rotate(-90,12,${H/2})`}>% inhibition</text>
+      <g transform={`translate(${pad+10},${pad+6})`}>
+        <line x1={0} x2={14} y1={0} y2={0} stroke={C.accent} strokeWidth={2.5}/>
+        <text x={20} y={4} fill={C.textDim} fontSize={10} fontFamily="Outfit">Wild-type (IC50 = 100 nM)</text>
+        <line x1={0} x2={14} y1={16} y2={16} stroke={C.warn} strokeWidth={2.5}/>
+        <text x={20} y={20} fill={C.textDim} fontSize={10} fontFamily="Outfit">Mutant (IC50 = 1600 nM)</text>
+      </g>
+    </svg>
+  );
+}
+
+/* ============================================================
+   PRIMITIVE: StatsCanvas -- key-value badges (N02, N03 displays)
+   ============================================================ */
+function StatsCanvas({items,width=420}){
+  const ref=useRef(null);const dpr=window.devicePixelRatio||2;const h=90;
+  useEffect(()=>{
+    const c=ref.current;if(!c)return;
+    c.width=width*dpr;c.height=h*dpr;
+    const ctx=c.getContext("2d");ctx.clearRect(0,0,c.width,c.height);
+    const colW=width/items.length;
+    items.forEach((it,i)=>{
+      const cx=(i*colW+colW/2)*dpr;
+      ctx.font=`400 ${9*dpr}px "DM Mono",monospace`;
+      ctx.fillStyle=C.textMuted;ctx.textAlign="center";ctx.textBaseline="top";
+      ctx.fillText(it.label.toUpperCase(),cx,8*dpr);
+      ctx.font=`700 ${20*dpr}px "Outfit",sans-serif`;
+      ctx.fillStyle=C.accent;ctx.fillText(it.val,cx,26*dpr);
+      if(it.sub){ctx.font=`400 ${9*dpr}px "DM Mono",monospace`;ctx.fillStyle=C.textMuted;ctx.fillText(it.sub,cx,58*dpr);}
+    });
+  },[items,width,dpr]);
+  return <canvas ref={ref} style={{width,height:h,display:"block",userSelect:"none",pointerEvents:"none",margin:"0 auto"}}/>;
+}
+
+/* ============================================================
+   PRIMITIVE: Option button + Toggle button
+   ============================================================ */
+function OptionBtn({text,selected,onClick,width=540}){
+  return(
+    <div onClick={onClick} style={{background:selected?C.accent+"15":C.surfaceHi,border:`1.5px solid ${selected?C.accent:C.border}`,borderRadius:10,padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"all .15s"}}>
+      <span style={{width:20,height:20,borderRadius:10,flexShrink:0,border:`2px solid ${selected?C.accent:C.textMuted}`,background:selected?C.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        {selected&&<span style={{width:6,height:6,borderRadius:3,background:C.bg}}/>}
+      </span>
+      <CanvasText text={text} width={width-60} fontSize={13} color={selected?C.text:C.textDim} lineHeight={1.5}/>
+    </div>
+  );
+}
+
+/* ============================================================
+   PRIMITIVE: Ranking input
+   ============================================================ */
+function RankingInput({items,value,onChange}){
+  const [dragIdx,setDragIdx]=useState(null);
+  const move=(f,t)=>{const n=[...value];const[it]=n.splice(f,1);n.splice(t,0,it);onChange(n);};
+  return(
+    <div style={{maxWidth:540,margin:"0 auto"}}>
+      <div style={{textAlign:"center",marginBottom:12}}>
+        <CanvasText text="Use arrows to reorder. Top = do first." width={340} fontSize={12} color={C.textDim} fontFamily="DM Mono" align="center"/>
+      </div>
+      {value.map((id,idx)=>{
+        const item=items.find(i=>i.id===id);
+        return(
+          <div key={id} draggable onDragStart={()=>setDragIdx(idx)} onDragOver={e=>e.preventDefault()}
+            onDrop={()=>{if(dragIdx!==null&&dragIdx!==idx)move(dragIdx,idx);setDragIdx(null);}}
+            style={{display:"flex",alignItems:"center",gap:12,background:dragIdx===idx?C.accent+"11":C.surfaceHi,border:`1px solid ${dragIdx===idx?C.accent:C.border}`,borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"grab"}}>
+            <span style={{fontFamily:"Outfit",fontWeight:700,fontSize:18,color:idx===0?C.accent:C.textMuted,width:28}}>{idx+1}</span>
+            <div style={{flex:1}}><CanvasText text={item.text} width={400} fontSize={13} color={C.text} lineHeight={1.4}/></div>
+            <div style={{display:"flex",flexDirection:"column",gap:2}}>
+              <button disabled={idx===0} onClick={()=>move(idx,idx-1)} style={{background:"none",border:"none",color:idx===0?C.textMuted:C.accent,cursor:idx===0?"default":"pointer",fontSize:16,padding:2,lineHeight:1}}>{"▲"}</button>
+              <button disabled={idx===value.length-1} onClick={()=>move(idx,idx+1)} style={{background:"none",border:"none",color:idx===value.length-1?C.textMuted:C.accent,cursor:idx===value.length-1?"default":"pointer",fontSize:16,padding:2,lineHeight:1}}>{"▼"}</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============================================================
+   PRIMITIVE: Timer
+   ============================================================ */
+function Timer({seconds,total}){
+  const pct=seconds/total;const color=pct<0.25?C.warn:C.accent;
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{width:120,height:6,background:C.border,borderRadius:3,overflow:"hidden"}}>
+        <div style={{width:`${pct*100}%`,height:"100%",background:color,borderRadius:3,transition:"width 1s linear, background .3s"}}/>
+      </div>
+      <span style={{fontFamily:"DM Mono",fontSize:14,fontWeight:500,color,minWidth:30}}>{seconds}s</span>
+    </div>
+  );
+}
+
+/* ============================================================
+   VISUAL RENDERER LOOKUP
+   Figure/table code stays client-side; question text/options are fetched
+   as a token-bound batch from Apps Script.
+   ============================================================ */
+
+// Cell-coloring helpers for tables
+const colorL01 = (cell, ri, ci) => {
+  if (ci === 0) return C.text;
+  if (cell === "S") return C.accent;
+  if (cell === "R") return C.warn;
+  return C.textDim;
+};
+const colorL02 = (cell, ri, ci) => {
+  if (ci === 0) return C.text;
+  if (cell === "N") return C.accent;
+  if (cell === "X") return C.warn;
+  if (cell === "S") return C.gold;
+  return C.textDim;
+};
+const colorL06 = (cell, ri, ci) => {
+  if (ci === 0) return C.text;
+  if (cell === "R") return C.warn;
+  if (cell === "S") return C.accent;
+  return C.textDim;
+};
+const colorMI06 = (cell, ri, ci) => {
+  if (ci === 0) return C.text;
+  if (typeof cell === "string" && cell.includes(">")) return C.warn;
+  if (ci === 2 && parseFloat(cell) >= 4) return C.gold;
+  if (ci === 3 && parseFloat(cell) >= 1) return C.gold;
+  return C.textDim;
+};
+
+const VISUAL_RENDERERS = {
+  L01Table: () => (
+    <GenericTable
+      headers={["Gene","Drug A","Drug B","Drug C"]}
+      rows={[["W","S","S","S"],["X","S","N","N"],["Y","N","R","N"],["Z","N","S","N"]]}
+      cellColor={colorL01}
+    />
+  ),
+  L02Table: () => (
+    <GenericTable
+      headers={["Mutant","Standard","+ oxidative stress","+ acid stress"]}
+      rows={[["1","N","X","S"],["2","X","X","X"],["3","N","N","X"],["4","S","S","S"]]}
+      cellColor={colorL02}
+      colWidths={[70,110,150,130]}
+      width={460}
+    />
+  ),
+  L06Table: () => (
+    <GenericTable
+      headers={["Strain","A1","A2","A3","A4"]}
+      rows={[["S1","R","S","R","S"],["S2","S","R","R","S"],["S3","R","R","R","S"],["S4","S","S","R","S"]]}
+      cellColor={colorL06}
+      width={440}
+    />
+  ),
+  N02Stats: () => (
+    <div style={{background:C.surfaceHi,borderRadius:12,padding:16,border:`1px solid ${C.border}`,maxWidth:460,margin:"0 auto 16px"}}>
+      <StatsCanvas items={[
+        {label:"Prevalence", val:"0.2%", sub:"1 in 500"},
+        {label:"Sensitivity", val:"98%", sub:"true positive rate"},
+        {label:"Specificity", val:"96%", sub:"true negative rate"},
+      ]} width={420}/>
+    </div>
+  ),
+  N03Stats: () => (
+    <div style={{background:C.surfaceHi,borderRadius:12,padding:16,border:`1px solid ${C.border}`,maxWidth:460,margin:"0 auto 16px"}}>
+      <StatsCanvas items={[
+        {label:"Start", val:"1 cell"},
+        {label:"Doubling", val:"20 min"},
+        {label:"Target", val:"10^9 cells/mL"},
+      ]} width={420}/>
+    </div>
+  ),
+  DoseResponseSVG: () => <DoseResponseSVG/>,
+  TimeKillCurvesSVG: () => <TimeKillCurvesSVG/>,
+  GrowthCurvesSVG: () => <GrowthCurvesSVG/>,
+  MI06Table: () => (
+    <GenericTable
+      headers={["Isolate","Oxacillin","Vancomycin","Daptomycin"]}
+      rows={[
+        ["SA-1","0.5","1.0","0.5"],
+        ["SA-2",">256","1.0","0.25"],
+        ["SA-3",">256","4.0","1.0"],
+        ["SA-4","0.25","0.5","0.25"],
+      ]}
+      cellColor={colorMI06}
+      width={480}
+    />
+  ),
+  MB04Table: () => (
+    <GenericTable
+      headers={["Truncation","Induction (fold)"]}
+      rows={[
+        ["Full-length (-300 to TSS)","100x"],
+        ["-200 to TSS","100x"],
+        ["-150 to TSS","50x"],
+        ["-100 to TSS","10x"],
+        ["-50 to TSS","1x (no induction)"],
+      ]}
+      width={380}
+    />
+  ),
+};
+
+function renderVisual(id){
+  const Renderer = VISUAL_RENDERERS[id];
+  return Renderer ? <Renderer/> : null;
+}
+
+/* ============================================================
+   TOKEN HANDLING
+   ============================================================ */
+function getTokenFromURL(){
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (params.get("t") || "").trim();
+  } catch (e) {
+    return "";
+  }
+}
+
+/* ============================================================
+   MAIN APP
+   Phases: gate/checking -> intro -> ready -> fetching -> graded -> personality -> submitting -> complete
+   ============================================================ */
+function App(){
+  const token = useMemo(getTokenFromURL, []);
+  const [gradedQuestions, setGradedQuestions] = useState([]);
+  const [personalityQuestions, setPersonalityQuestions] = useState([]);
+
+  // Phase flow:
+  //   no token -> "gate" (reason: missing)
+  //   token present -> "checking" -> server pre-flight -> "intro" if ok,
+  //                                                       "gate" with reason otherwise
+  const [phase, setPhase] = useState(token ? "checking" : "gate");
+  const [gateReason, setGateReason] = useState(token ? "" : "missing");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+
+  // Graded-phase state
+  const [gIdx, setGIdx] = useState(0);
+  const [gAnswers, setGAnswers] = useState([]); // [{qid, value, chosenText, elapsed, timedOut}]
+  const [timer, setTimer] = useState(0);
+  const [curChoice, setCurChoice] = useState(null);
+  const [curReason, setCurReason] = useState(null);
+  const [rankOrder, setRankOrder] = useState(null);
+
+  // Personality-phase state
+  const [pIdx, setPIdx] = useState(0);
+  const [pAnswers, setPAnswers] = useState({}); // {qid: "text or letter"}
+  const [curText, setCurText] = useState("");
+
+  // Telemetry
+  const [tabSwitches, setTabSwitches] = useState(0);
+  const [log, setLog] = useState([]);
+
+  // Submission state
+  const [submitState, setSubmitState] = useState("idle"); // idle | sending | ok | error
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const timerRef = useRef(null);
+  const startRef = useRef(null);
+  const deadlineRef = useRef(null);
+  const submittedRef = useRef(false);
+  const lastFocusLossRef = useRef(0);
+
+  // Pre-flight: when we have a token, ask the server whether it's still usable.
+  // Runs once on mount. Result routes the user to intro (ok) or gate (other).
+  useEffect(()=>{
+    if(phase !== "checking") return;
+    if(!token){ setGateReason("missing"); setPhase("gate"); return; }
+    const url = `${GOOGLE_SCRIPT_URL}?t=${encodeURIComponent(token)}`;
+    fetch(url, {method:"GET", mode:"cors", redirect:"follow"})
+      .then(r => r.json())
+      .then(data => {
+        const status = (data && data.token_status) || "unknown";
+        if(status === "ok"){
+          setPhase("intro");
+        } else {
+          setGateReason(status);
+          setPhase("gate");
+        }
+      })
+      .catch(() => {
+        // Fail-closed: if we can't reach the server, refuse entry rather than
+        // letting the candidate complete a test that may not record.
+        setGateReason("network_error");
+        setPhase("gate");
+      });
+  // eslint-disable-next-line
+  },[]);
+
+  // Batch fetch: only after the candidate clicks Begin. The server first marks
+  // the token as started and returns a nonce; the batch endpoint requires that
+  // nonce, so a plain action=batch&t=TOKEN URL will not reveal questions.
+  useEffect(()=>{
+    if(phase !== "fetching") return;
+    const startUrl = `${GOOGLE_SCRIPT_URL}?action=start&t=${encodeURIComponent(token)}`;
+    fetch(startUrl, {method:"GET", mode:"cors", redirect:"follow"})
+      .then(r => r.json())
+      .then(data => {
+        if(!data || data.status !== "ok" || !data.start_nonce){
+          setGateReason((data && data.token_status && data.token_status !== "ok") ? data.token_status : "network_error");
+          setPhase("gate");
+          return null;
+        }
+        const batchUrl = `${GOOGLE_SCRIPT_URL}?action=batch&t=${encodeURIComponent(token)}&n=${encodeURIComponent(data.start_nonce)}`;
+        return fetch(batchUrl, {method:"GET", mode:"cors", redirect:"follow"});
+      })
+      .then(r => r ? r.json() : null)
+      .then(data => {
+        if(!data) return;
+        if(data && data.status === "ok" && data.batch){
+          setGradedQuestions(data.batch.graded || []);
+          setPersonalityQuestions(data.batch.personality || []);
+          setLog(p => [...p, {event:"start", t:Date.now()}]);
+          setPhase("graded");
+          return;
+        }
+        setGateReason((data && data.token_status && data.token_status !== "ok") ? data.token_status : "network_error");
+        setPhase("gate");
+      })
+      .catch(() => {
+        setGateReason("network_error");
+        setPhase("gate");
+      });
+  },[phase, token]);
+
+  // Body class for CSS anti-select during graded phase only
+  useEffect(()=>{
+    if(phase==="graded") document.body.classList.add("in-graded");
+    else document.body.classList.remove("in-graded");
+  },[phase]);
+
+  // Block copy/paste/right-click during graded phase, and silently log the attempt.
+  // Logging is silent — the candidate sees no UI change. Lucas can review the
+  // process_log column for any candidate that triggered these.
+  useEffect(()=>{
+    const logAttempt = (kind) => {
+      const curQid = gradedQuestions[gIdx] && gradedQuestions[gIdx].qid;
+      setLog(p => [...p, {event:"copy_block", kind, qid: curQid, t: Date.now()}]);
+    };
+    const block = e => {
+      if(phase==="graded") {
+        e.preventDefault();
+        logAttempt(e.type); // "copy" | "cut" | "selectstart" | "contextmenu"
+      }
+    };
+    const blockKey = e => {
+      if(phase==="graded" && (e.ctrlKey||e.metaKey) && "cax".includes(e.key)) {
+        e.preventDefault();
+        logAttempt("key_" + e.key);
+      }
+    };
+    document.addEventListener("copy", block);
+    document.addEventListener("cut", block);
+    document.addEventListener("selectstart", block);
+    document.addEventListener("contextmenu", block);
+    document.addEventListener("keydown", blockKey);
+    return () => {
+      document.removeEventListener("copy", block);
+      document.removeEventListener("cut", block);
+      document.removeEventListener("selectstart", block);
+      document.removeEventListener("contextmenu", block);
+      document.removeEventListener("keydown", blockKey);
+    };
+  },[phase, gIdx, gradedQuestions]);
+
+  // Tab/window focus loss tracking during graded + personality phases
+  useEffect(()=>{
+    if(phase!=="graded" && phase!=="personality") return;
+    const record = (eventName, qid) => {
+      const now = Date.now();
+      if(now - lastFocusLossRef.current < 800) return;
+      lastFocusLossRef.current = now;
+      setTabSwitches(p => p + 1);
+      setLog(p => [...p, {event: eventName, qid, phase, t: now}]);
+    };
+    const curQid = phase === "graded"
+      ? (gradedQuestions[gIdx] && gradedQuestions[gIdx].qid)
+      : (personalityQuestions[pIdx] && personalityQuestions[pIdx].qid);
+    const onVis = () => { if(document.hidden) record("tab_switch", curQid); };
+    const onBlur = () => record("window_blur", curQid);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("blur", onBlur);
+    };
+  },[phase, gIdx, pIdx, gradedQuestions, personalityQuestions]);
+
+  // Graded-phase timer
+  useEffect(()=>{
+    if(phase!=="graded") return;
+    const q = gradedQuestions[gIdx];
+    if(!q) return;
+    submittedRef.current = false;
+    setTimer(q.timeLimit);
+    startRef.current = Date.now();
+    deadlineRef.current = startRef.current + q.timeLimit * 1000;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((deadlineRef.current - Date.now()) / 1000));
+      setTimer(remaining);
+      if(remaining <= 0 && !submittedRef.current){
+        clearInterval(timerRef.current);
+        submittedRef.current = true;
+        setTimeout(()=>advanceGraded(true), 0);
+      }
+    };
+    timerRef.current = setInterval(tick, 250);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    tick();
+    return () => {
+      clearInterval(timerRef.current);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+    };
+  // eslint-disable-next-line
+  },[phase, gIdx]);
+
+  // Personality-phase timer
+  useEffect(()=>{
+    if(phase!=="personality") return;
+    const q = personalityQuestions[pIdx];
+    if(!q) return;
+    submittedRef.current = false;
+    setTimer(q.timeLimit);
+    startRef.current = Date.now();
+    deadlineRef.current = startRef.current + q.timeLimit * 1000;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((deadlineRef.current - Date.now()) / 1000));
+      setTimer(remaining);
+      if(remaining <= 0 && !submittedRef.current){
+        clearInterval(timerRef.current);
+        submittedRef.current = true;
+        setTimeout(()=>advancePersonality(true), 0);
+      }
+    };
+    timerRef.current = setInterval(tick, 250);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    tick();
+    return () => {
+      clearInterval(timerRef.current);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+    };
+  // eslint-disable-next-line
+  },[phase, pIdx]);
+
+  // ----- advance graded -----
+  const advanceGraded = useCallback((timedOut=false) => {
+    clearInterval(timerRef.current);
+    const q = gradedQuestions[gIdx];
+    const elapsed = +((Date.now() - startRef.current) / 1000).toFixed(1);
+    let value, chosenText = "";
+    if(q.type === "single-choice" || q.type === "scenario-mcq" || q.type === "forced-choice"){
+      value = curChoice;
+      const opt = q.options.find(o => o.id === curChoice);
+      if(opt) chosenText = opt.text;
+    } else if(q.type === "estimate-reason"){
+      value = {estimate: curChoice, reasoning: curReason};
+      const optE = q.options.find(o => o.id === curChoice);
+      const optR = q.reasoning.find(r => r.id === curReason);
+      chosenText = `est=${optE?optE.text:"(none)"} | reasoning=${optR?optR.text:"(none)"}`;
+    } else if(q.type === "ranking"){
+      value = rankOrder || q.options.map(o => o.id);
+      chosenText = value.join(",");
+    } else if(q.type === "open-text"){
+      value = curText;
+      chosenText = "";
+    } else {
+      value = curChoice;
+    }
+    const entry = {qid: q.qid, category: q.category, type: q.type, value, chosenText, elapsed, timedOut};
+    setGAnswers(p => [...p, entry]);
+    setLog(p => [...p, {event:"graded_answer", qid:q.qid, elapsed, timedOut, t:Date.now()}]);
+    setCurChoice(null);
+    setCurReason(null);
+    setRankOrder(null);
+    setCurText("");
+    if(gIdx < gradedQuestions.length - 1){
+      setGIdx(p => p + 1);
+    } else {
+      setPhase("personality");
+    }
+  }, [gIdx, curChoice, curReason, rankOrder, curText, gradedQuestions]);
+
+  // ----- advance personality -----
+  const advancePersonality = useCallback((timedOut=false) => {
+    clearInterval(timerRef.current);
+    const q = personalityQuestions[pIdx];
+    const elapsed = +((Date.now() - startRef.current) / 1000).toFixed(1);
+    let value;
+    if(q.type === "open-text"){
+      value = curText;
+    } else {
+      const opt = q.options.find(o => o.id === curChoice);
+      value = curChoice;
+      // record chosen text in the log for Lucas's reference
+      setLog(p => [...p, {event:"personality_choice_text", qid:q.qid, text: opt ? opt.text : null, t:Date.now()}]);
+    }
+    setPAnswers(p => ({...p, [q.qid]: value}));
+    setLog(p => [...p, {event:"personality_answer", qid:q.qid, elapsed, timedOut, t:Date.now()}]);
+    setCurChoice(null);
+    setCurText("");
+    if(pIdx < personalityQuestions.length - 1){
+      setPIdx(p => p + 1);
+    } else {
+      setPhase("submitting");
+    }
+  }, [pIdx, curChoice, curText, personalityQuestions]);
+
+  // ----- submit -----
+  useEffect(()=>{
+    if(phase !== "submitting") return;
+    if(submitState !== "idle") return;
+    setSubmitState("sending");
+
+    // Build personality_text dictionary (full text or chosen letter)
+    const personality_text = {};
+    personalityQuestions.forEach(q => {
+      personality_text[q.qid] = pAnswers[q.qid] === undefined ? null : pAnswers[q.qid];
+    });
+
+    const avgTime = gAnswers.length
+      ? +(gAnswers.reduce((s,a) => s + (a.elapsed||0), 0) / gAnswers.length).toFixed(1)
+      : 0;
+    const timedOutCount = gAnswers.filter(a => a.timedOut).length;
+
+    const payload = {
+      token,
+      name: name.trim(),
+      email: email.trim(),
+      timestamp: new Date().toISOString(),
+      answers: gAnswers,
+      personality_text,
+      meta: {
+        tab_switches: tabSwitches,
+        avg_time_s: avgTime,
+        timed_out_count: timedOutCount,
+        graded_count: gAnswers.length,
+        personality_count: Object.keys(personality_text).length,
+      },
+      log,
+    };
+
+    // Apps Script web app: use cors so we can actually read the response and
+    // detect submission failures (network, server, rejected). Apps Script
+    // includes the right CORS headers automatically when deployed as "Anyone".
+    // Content-Type must be text/plain to skip the CORS preflight; Apps Script
+    // still receives the JSON body via e.postData.contents.
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      mode: "cors",
+      headers: {"Content-Type": "text/plain;charset=utf-8"},
+      body: JSON.stringify(payload),
+    })
+    .then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(data => {
+      if (data && data.status === "ok") {
+        setSubmitState("ok");
+        setPhase("complete");
+      } else {
+        // Server replied but rejected the submission (e.g. unknown token spam,
+        // expired token sneaking past pre-flight, malformed payload).
+        setSubmitState("error");
+        setErrorMessage("Your responses were not accepted. Please contact the lab.");
+        setPhase("complete");
+      }
+    })
+    .catch(err => {
+      // Network failure, CORS issue, or non-JSON response. Tell the candidate
+      // honestly so they can contact the lab rather than walking away with a
+      // ghost submission.
+      setSubmitState("error");
+      setErrorMessage("Could not submit your responses (network error). Please contact the lab so we can issue you a fresh link.");
+      setPhase("complete");
+    });
+  // eslint-disable-next-line
+  },[phase]);
+
+  /* ──────────── render ──────────── */
+  const ns = {userSelect:"none", WebkitUserSelect:"none", MozUserSelect:"none"};
+
+  // CHECKING: pre-flight server call in progress
+  if(phase === "checking"){
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, ...ns}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontFamily:"DM Mono", fontSize:14, color:C.textDim, marginBottom:14}}>Verifying access link...</div>
+          <div style={{width:200, height:4, background:C.border, borderRadius:2, overflow:"hidden", margin:"0 auto"}}>
+            <div style={{width:"50%", height:"100%", background:C.accent, animation:"shimmer 1.4s linear infinite"}}/>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // FETCHING: token-bound question batch is loading after Begin
+  if(phase === "fetching"){
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, ...ns}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontFamily:"DM Mono", fontSize:14, color:C.textDim, marginBottom:14}}>Preparing first question...</div>
+          <div style={{width:200, height:4, background:C.border, borderRadius:2, overflow:"hidden", margin:"0 auto"}}>
+            <div style={{width:"50%", height:"100%", background:C.accent, animation:"shimmer 1.4s linear infinite"}}/>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // GATE: typed reason
+  if(phase === "gate"){
+    const gateCopy = {
+      missing: {
+        title: "Access link required",
+        body: "This assessment can only be opened via a personal access link. If you received an invitation by email, please use the link in the email.",
+      },
+      unknown: {
+        title: "Link not recognised",
+        body: "We don't recognise this access link. It may be mistyped or expired.",
+      },
+      already_used: {
+        title: "This link has already been used",
+        body: "This assessment was already completed using this link. Each link can only be used once.",
+      },
+      expired: {
+        title: "This link has expired",
+        body: "Each link is valid for 2 hours from the first time it is opened. This window has now passed. Please contact the lab if you need a new link.",
+      },
+      network_error: {
+        title: "Connection problem",
+        body: "We couldn't verify your access link due to a connection issue. Please refresh the page in a few minutes. If the problem persists, contact the lab.",
+      },
+    };
+    const copy = gateCopy[gateReason] || gateCopy.unknown;
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, ...ns}}>
+        <div style={{maxWidth:500, width:"100%", textAlign:"center"}}>
+          <div style={{display:"inline-flex", alignItems:"center", justifyContent:"center", width:60, height:60, borderRadius:14, marginBottom:18, background:`linear-gradient(135deg,${C.warn}22,${C.gold}22)`, border:`1px solid ${C.warn}44`}}>
+            <span style={{fontSize:26}}>{"⚠"}</span>
+          </div>
+          <h1 style={{fontFamily:"Outfit", fontWeight:700, fontSize:24, color:C.text, marginBottom:12}}>{copy.title}</h1>
+          <p style={{fontFamily:"Outfit", fontSize:14, color:C.textDim, lineHeight:1.6}}>{copy.body}</p>
+          <p style={{fontFamily:"Outfit", fontSize:13, color:C.textMuted, lineHeight:1.6, marginTop:14}}>
+            If you believe this is an error, contact the lab.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // INTRO
+  if(phase === "intro"){
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
+        <div style={{maxWidth:580, width:"100%"}}>
+          <div style={{textAlign:"center", marginBottom:36}}>
+            <div style={{display:"inline-flex", alignItems:"center", justifyContent:"center", width:60, height:60, borderRadius:14, marginBottom:18, background:`linear-gradient(135deg,${C.accent}22,${C.blue}22)`, border:`1px solid ${C.accent}44`}}>
+              <span style={{fontSize:26}}>{"🧬"}</span>
+            </div>
+            <h1 style={{fontFamily:"Outfit", fontWeight:700, fontSize:28, color:C.text, margin:"0 0 8px"}}>{ASSESSMENT_TITLE}</h1>
+            <p style={{fontFamily:"Outfit", fontSize:15, color:C.textDim, margin:0, lineHeight:1.6}}>
+              This assessment contains timed questions and short written responses. Please plan up to 90 uninterrupted minutes.
+            </p>
+          </div>
+          <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:22, marginBottom:20}}>
+            <h3 style={{fontFamily:"Outfit", fontSize:14, color:C.accent, margin:"0 0 14px", letterSpacing:1, textTransform:"uppercase"}}>Before you begin</h3>
+            {[
+              {icon:"⏱", t:"~35 questions in two sections. Each is individually timed. You cannot pause, go back, or retake."},
+              {icon:"🚫", t:"Please complete this independently. Outside help or external tools may make the result unusable."},
+              {icon:"🔇", t:"Find a quiet ~90-minute window. Avoid opening other apps or tabs."},
+              {icon:"🧠", t:"Use only the information provided in each prompt."},
+              {icon:"✍", t:"For open-text questions, express your own thinking clearly. Concrete answers are better than polished answers."},
+            ].map((r,i,arr)=>(
+              <div key={i} style={{display:"flex", gap:12, alignItems:"flex-start", marginBottom:i<arr.length-1?12:0}}>
+                <span style={{fontSize:17, lineHeight:1.4}}>{r.icon}</span>
+                <span style={{fontFamily:"Outfit", fontSize:14, color:C.text, lineHeight:1.5}}>{r.t}</span>
+              </div>
+            ))}
+            <p style={{fontFamily:"Outfit", fontSize:12, color:C.textMuted, lineHeight:1.5, margin:"16px 0 0", fontStyle:"italic"}}>
+              Your responses are stored privately by the Boeck Lab and will be deleted within 12 months.
+            </p>
+          </div>
+          <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:22, marginBottom:20}}>
+            <label style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, display:"block", marginBottom:8}}>Full name *</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" required
+              style={{width:"100%", boxSizing:"border-box", padding:"10px 14px", borderRadius:8, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:15, outline:"none", marginBottom:14}}/>
+            <label style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, display:"block", marginBottom:8}}>Email *</label>
+            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" required
+              style={{width:"100%", boxSizing:"border-box", padding:"10px 14px", borderRadius:8, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:15, outline:"none"}}/>
+          </div>
+          <button disabled={!name.trim() || !email.trim()} onClick={()=>{ setPhase("ready"); setLog([{event:"intro_complete", t:Date.now(), token}]); }}
+            style={{width:"100%", padding:"15px 0", borderRadius:12, border:"none", background:`linear-gradient(135deg,${C.accent},${C.blue})`, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:16, cursor:name.trim()&&email.trim()?"pointer":"default", opacity:name.trim()&&email.trim()?1:.4, boxShadow:`0 4px 24px ${C.accent}33`}}>
+            {"Continue →"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // READY
+  if(phase === "ready"){
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
+        <div style={{maxWidth:580, width:"100%"}}>
+          <div style={{textAlign:"center", marginBottom:30}}>
+            <div style={{display:"inline-flex", alignItems:"center", justifyContent:"center", width:60, height:60, borderRadius:14, marginBottom:18, background:`linear-gradient(135deg,${C.gold}22,${C.warn}22)`, border:`1px solid ${C.gold}44`}}>
+              <span style={{fontSize:26}}>{"⏱"}</span>
+            </div>
+            <h1 style={{fontFamily:"Outfit", fontWeight:700, fontSize:26, color:C.text, margin:"0 0 8px"}}>Ready to start, {name.split(" ")[0]}?</h1>
+            <p style={{fontFamily:"Outfit", fontSize:14, color:C.textDim, margin:0, lineHeight:1.6}}>
+              The timer for the first question starts the moment you click Begin. Please make sure you are ready.
+            </p>
+          </div>
+          <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:22, marginBottom:20}}>
+            <h3 style={{fontFamily:"Outfit", fontSize:13, color:C.gold, margin:"0 0 14px", letterSpacing:1, textTransform:"uppercase"}}>Final reminders</h3>
+            {[
+              {icon:"⏱", t:"~35 questions. You cannot pause, go back, or retake."},
+              {icon:"🚫", t:"Please complete this independently. Outside help or external tools may make the result unusable."},
+              {icon:"🔇", t:"Find a quiet ~90-minute window. Avoid other apps or tabs."},
+              {icon:"🧠", t:"Use only the information provided in each prompt."},
+            ].map((r,i,arr)=>(
+              <div key={i} style={{display:"flex", gap:12, alignItems:"flex-start", marginBottom:i<arr.length-1?12:0}}>
+                <span style={{fontSize:17, lineHeight:1.4}}>{r.icon}</span>
+                <span style={{fontFamily:"Outfit", fontSize:14, color:C.text, lineHeight:1.5}}>{r.t}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>setPhase("fetching")}
+            style={{width:"100%", padding:"15px 0", borderRadius:12, border:"none", background:`linear-gradient(135deg,${C.accent},${C.blue})`, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:16, cursor:"pointer", boxShadow:`0 4px 24px ${C.accent}33`, marginBottom:10}}>
+            {"Begin assessment →"}
+          </button>
+          <button onClick={()=>setPhase("intro")}
+            style={{width:"100%", padding:"10px 0", borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.textDim, fontFamily:"Outfit", fontSize:13, cursor:"pointer"}}>
+            Go back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // SUBMITTING
+  if(phase === "submitting"){
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, ...ns}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontFamily:"DM Mono", fontSize:14, color:C.textDim, marginBottom:14}}>Submitting your responses...</div>
+          <div style={{width:200, height:4, background:C.border, borderRadius:2, overflow:"hidden", margin:"0 auto"}}>
+            <div style={{width:"50%", height:"100%", background:C.accent, animation:"shimmer 1.4s linear infinite"}}/>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // COMPLETE
+  if(phase === "complete"){
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, padding:24, display:"flex", justifyContent:"center", ...ns}}>
+        <div style={{maxWidth:500, width:"100%", textAlign:"center", paddingTop:60}}>
+          <div style={{display:"inline-flex", alignItems:"center", justifyContent:"center", width:60, height:60, borderRadius:14, marginBottom:18, background:`linear-gradient(135deg,${C.accent}22,${C.blue}22)`, border:`1px solid ${C.accent}44`}}>
+            <span style={{fontSize:26}}>{"✅"}</span>
+          </div>
+          <h1 style={{fontFamily:"Outfit", fontWeight:700, fontSize:28, color:C.text, marginBottom:8}}>Assessment Complete</h1>
+          <p style={{fontFamily:"Outfit", fontSize:15, color:C.textDim, lineHeight:1.6, marginBottom:8}}>
+            Thank you, {name}. Your responses have been recorded.
+          </p>
+          <p style={{fontFamily:"Outfit", fontSize:14, color:C.textMuted, lineHeight:1.6}}>
+            You will hear back from us regarding the next steps of the selection process. You may close this window.
+          </p>
+          {submitState === "error" && (
+            <div style={{marginTop:20, padding:14, borderRadius:10, background:C.warn+"11", border:`1px solid ${C.warn}33`}}>
+              <p style={{fontFamily:"DM Mono", fontSize:12, color:C.warn}}>{errorMessage}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // GRADED phase
+  if(phase === "graded"){
+    const q = gradedQuestions[gIdx];
+    const totalGraded = gradedQuestions.length;
+    const canSubmit = (() => {
+      if(q.type === "single-choice" || q.type === "scenario-mcq" || q.type === "forced-choice") return !!curChoice;
+      if(q.type === "estimate-reason") return !!curChoice && !!curReason;
+      if(q.type === "ranking") return true;
+      if(q.type === "open-text") return curText.trim().length > 0;
+      return false;
+    })();
+
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, padding:20, ...ns}}>
+        <div style={{maxWidth:640, margin:"0 auto"}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
+            <div style={{display:"flex", alignItems:"center", gap:10}}>
+              <span style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, background:C.surfaceHi, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.border}`}}>{gIdx+1} / {totalGraded}</span>
+              <span style={{fontFamily:"DM Mono", fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:1}}>{q.category}</span>
+            </div>
+            <Timer seconds={timer} total={q.timeLimit}/>
+          </div>
+          <div style={{height:3, background:C.border, borderRadius:2, marginBottom:24}}>
+            <div style={{height:"100%", width:`${(gIdx/totalGraded)*100}%`, background:C.accent, borderRadius:2, transition:"width .3s"}}/>
+          </div>
+
+          <CanvasText text={q.title} width={600} fontSize={20} fontWeight="600" color={C.text} lineHeight={1.3}/>
+          <div style={{height:8}}/>
+          <CanvasText text={q.prompt} width={600} fontSize={14} color={C.textDim} lineHeight={1.6}/>
+          <div style={{height:18}}/>
+
+          {q.render && renderVisual(q.render)}
+
+          {q.promptTail && (<>
+            <CanvasText text={q.promptTail} width={600} fontSize={14} color={C.text} lineHeight={1.55} fontWeight="500"/>
+            <div style={{height:14}}/>
+          </>)}
+
+          {(q.type === "single-choice") && (
+            <div style={{display:"flex", flexDirection:"column", gap:7}}>
+              {q.options.map(opt => (
+                <OptionBtn key={opt.id} text={opt.text} selected={curChoice===opt.id} onClick={()=>setCurChoice(opt.id)}/>
+              ))}
+            </div>
+          )}
+
+          {q.type === "estimate-reason" && (
+            <div>
+              <CanvasText text="YOUR ESTIMATE" width={160} fontSize={11} fontFamily="DM Mono" color={C.textMuted}/>
+              <div style={{display:"flex", gap:8, flexWrap:"wrap", margin:"8px 0 18px"}}>
+                {q.options.map(opt => (
+                  <div key={opt.id} onClick={()=>setCurChoice(opt.id)} style={{background:curChoice===opt.id?C.accent+"15":C.surfaceHi, border:`1.5px solid ${curChoice===opt.id?C.accent:C.border}`, borderRadius:8, padding:"10px 16px", cursor:"pointer"}}>
+                    <CanvasText text={opt.text} width={140} fontSize={13} fontFamily="DM Mono" color={curChoice===opt.id?C.accent:C.textDim}/>
+                  </div>
+                ))}
+              </div>
+              <CanvasText text="BEST SUPPORTING REASONING" width={260} fontSize={11} fontFamily="DM Mono" color={C.textMuted}/>
+              <div style={{display:"flex", flexDirection:"column", gap:7, marginTop:8}}>
+                {q.reasoning.map(r => (
+                  <div key={r.id} onClick={()=>setCurReason(r.id)} style={{background:curReason===r.id?C.blue+"15":C.surfaceHi, border:`1.5px solid ${curReason===r.id?C.blue:C.border}`, borderRadius:10, padding:"10px 14px", cursor:"pointer"}}>
+                    <CanvasText text={r.text} width={540} fontSize={12.5} color={curReason===r.id?C.text:C.textDim} lineHeight={1.5}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {q.type === "ranking" && (
+            <RankingInput items={q.options} value={rankOrder || q.options.map(o => o.id)} onChange={setRankOrder}/>
+          )}
+
+          {q.type === "open-text" && (
+            <textarea value={curText} onChange={e=>setCurText(e.target.value)}
+              placeholder="Type your answer here..."
+              autoFocus
+              style={{width:"100%", boxSizing:"border-box", minHeight:200, padding:"14px 16px", borderRadius:10, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:14, lineHeight:1.6, fontFamily:"Outfit", outline:"none", resize:"vertical"}}/>
+          )}
+
+          <button onClick={()=>{ submittedRef.current = true; advanceGraded(false); }} disabled={!canSubmit}
+            style={{marginTop:24, width:"100%", padding:"13px 0", borderRadius:10, border:"none", background:C.accent, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:15, cursor:canSubmit?"pointer":"default", opacity:canSubmit?1:.35, transition:"opacity .2s"}}>
+            {gIdx < totalGraded-1 ? "Submit & Next →" : "Continue to next section →"}
+          </button>
+          {/* Live focus-loss counter removed: scares honest candidates who
+              accidentally Alt-Tab. Events are still logged silently into
+              process_log for Lucas to review per-candidate. */}
+        </div>
+      </div>
+    );
+  }
+
+  // PERSONALITY phase
+  if(phase === "personality"){
+    const q = personalityQuestions[pIdx];
+    const totalP = personalityQuestions.length;
+    const canSubmit = q.type === "open-text"
+      ? curText.trim().length > 0
+      : !!curChoice;
+
+    return (
+      <div style={{minHeight:"100vh", background:C.bg, padding:20}}>
+        <div style={{maxWidth:640, margin:"0 auto"}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
+            <div style={{display:"flex", alignItems:"center", gap:10}}>
+              <span style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, background:C.surfaceHi, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.border}`}}>Reflection {pIdx+1} / {totalP}</span>
+            </div>
+            <Timer seconds={timer} total={q.timeLimit}/>
+          </div>
+          <div style={{height:3, background:C.border, borderRadius:2, marginBottom:24}}>
+            <div style={{height:"100%", width:`${(pIdx/totalP)*100}%`, background:C.purple, borderRadius:2, transition:"width .3s"}}/>
+          </div>
+
+          <CanvasText text={q.title} width={600} fontSize={20} fontWeight="600" color={C.text} lineHeight={1.3}/>
+          <div style={{height:8}}/>
+          <CanvasText text={q.prompt} width={600} fontSize={14} color={C.textDim} lineHeight={1.6}/>
+          <div style={{height:18}}/>
+
+          {q.type === "open-text" && (
+            <textarea value={curText} onChange={e=>setCurText(e.target.value)}
+              placeholder="Type your answer here..."
+              autoFocus
+              style={{width:"100%", boxSizing:"border-box", minHeight:180, padding:"14px 16px", borderRadius:10, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:14, lineHeight:1.6, fontFamily:"Outfit", outline:"none", resize:"vertical"}}/>
+          )}
+
+          {(q.type === "scenario-mcq" || q.type === "forced-choice") && (
+            <div style={{display:"flex", flexDirection:"column", gap:7}}>
+              {q.options.map(opt => (
+                <OptionBtn key={opt.id} text={opt.text} selected={curChoice===opt.id} onClick={()=>setCurChoice(opt.id)}/>
+              ))}
+            </div>
+          )}
+
+          <button onClick={()=>{ submittedRef.current = true; advancePersonality(false); }} disabled={!canSubmit}
+            style={{marginTop:24, width:"100%", padding:"13px 0", borderRadius:10, border:"none", background:C.purple, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:15, cursor:canSubmit?"pointer":"default", opacity:canSubmit?1:.35, transition:"opacity .2s"}}>
+            {pIdx < totalP-1 ? "Submit & Next →" : "Submit assessment"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<style>
+@keyframes shimmer {
+  0% { transform: translateX(-200%); }
+  100% { transform: translateX(400%); }
+}
+</style>
+</body>
+</html>
