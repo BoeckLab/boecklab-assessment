@@ -10,7 +10,7 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body, #root { min-height: 100vh; background: #0B0F1A; }
+  html, body, #root { min-height: 100vh; background: #EEF2F9; }
   body { font-family: 'Outfit', sans-serif; -webkit-font-smoothing: antialiased; }
   /* anti-copy layer: applied during the GRADED phase only.
      Personality phase needs typing, so we don't lock selection there. */
@@ -36,14 +36,15 @@ const ASSESSMENT_TITLE = "Boeck Lab Reasoning Assessment";
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 const C = {
-  bg:"#0B0F1A",surface:"#131825",surfaceHi:"#1A2035",
-  border:"#252E45",borderHi:"#3A4668",
-  accent:"#4AE8C1",accentDim:"#2A8B73",
-  warn:"#FF6B6B",warnDim:"#8B3A3A",
-  text:"#E8ECF4",textDim:"#7B8AB0",textMuted:"#4A5578",
-  gold:"#F0C246",blue:"#5B8DEF",purple:"#A78BFA",
-  pink:"#EF5B8D",teal:"#5BEFE0",
-  ok:"#4AE8C1",
+  bg:"#EEF2F9",surface:"#FFFFFF",surfaceHi:"#F4F7FC",
+  border:"#D8E0EE",borderHi:"#C2CEE4",
+  accent:"#0E9E8C",accentDim:"#0B7C6E",
+  warn:"#D64545",warnDim:"#F3D2D2",
+  text:"#1B2238",textDim:"#5C6B8A",textMuted:"#8A96B2",
+  gold:"#B8860B",blue:"#3568D4",purple:"#6B4EE6",
+  pink:"#D6457F",teal:"#0E9E8C",
+  ok:"#0E9E8C",
+  btnText:"#FFFFFF",
 };
 
 /* ============================================================
@@ -270,7 +271,7 @@ function OptionBtn({text,selected,onClick,width=540}){
   return(
     <div onClick={onClick} style={{background:selected?C.accent+"15":C.surfaceHi,border:`1.5px solid ${selected?C.accent:C.border}`,borderRadius:10,padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"all .15s"}}>
       <span style={{width:20,height:20,borderRadius:10,flexShrink:0,border:`2px solid ${selected?C.accent:C.textMuted}`,background:selected?C.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
-        {selected&&<span style={{width:6,height:6,borderRadius:3,background:C.bg}}/>}
+        {selected&&<span style={{width:6,height:6,borderRadius:3,background:C.btnText}}/>}
       </span>
       <CanvasText text={text} width={width-60} fontSize={13} color={selected?C.text:C.textDim} lineHeight={1.5}/>
     </div>
@@ -447,12 +448,39 @@ function getTokenFromURL(){
   }
 }
 
+/* ------------------------------------------------------------------
+   PROGRESS PERSISTENCE (localStorage)
+   So an accidental tab/browser close doesn't lose answers. Progress is
+   keyed by token and kept only as long as the token window (2h). It is
+   cleared once the assessment is submitted successfully. Same browser
+   only — by design we do not send partial answers to the server.
+   ------------------------------------------------------------------ */
+const SAVE_PREFIX = "boecklab_assessment_";
+const SAVE_TTL_MS = 2 * 60 * 60 * 1000; // matches the server token window
+function saveKey(token){ return SAVE_PREFIX + token; }
+function loadSavedSession(token){
+  if(!token) return null;
+  try {
+    const raw = window.localStorage.getItem(saveKey(token));
+    if(!raw) return null;
+    const s = JSON.parse(raw);
+    if(!s || !s.savedAt || (Date.now() - s.savedAt) > SAVE_TTL_MS) return null;
+    return s;
+  } catch(e){ return null; }
+}
+function clearSavedSession(token){
+  try { window.localStorage.removeItem(saveKey(token)); } catch(e){}
+}
+
 /* ============================================================
    MAIN APP
    Phases: gate/checking -> intro -> ready -> fetching -> graded -> personality -> submitting -> complete
    ============================================================ */
 function App(){
   const token = useMemo(getTokenFromURL, []);
+  // Restore any in-progress session for this token (same browser, within 2h).
+  const savedSession = useMemo(() => loadSavedSession(token), [token]);
+  const resumeRef = useRef(null); // set to {phase} when we intend to resume after the batch loads
   const [gradedQuestions, setGradedQuestions] = useState([]);
   const [personalityQuestions, setPersonalityQuestions] = useState([]);
 
@@ -462,25 +490,25 @@ function App(){
   //                                                       "gate" with reason otherwise
   const [phase, setPhase] = useState(token ? "checking" : "gate");
   const [gateReason, setGateReason] = useState(token ? "" : "missing");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(savedSession ? (savedSession.name || "") : "");
+  const [email, setEmail] = useState(savedSession ? (savedSession.email || "") : "");
 
-  // Graded-phase state
-  const [gIdx, setGIdx] = useState(0);
-  const [gAnswers, setGAnswers] = useState([]); // [{qid, value, chosenText, elapsed, timedOut}]
+  // Graded-phase state (seeded from a saved session on resume)
+  const [gIdx, setGIdx] = useState(savedSession ? (savedSession.gIdx || 0) : 0);
+  const [gAnswers, setGAnswers] = useState(savedSession ? (savedSession.gAnswers || []) : []); // [{qid, value, chosenText, elapsed, timedOut}]
   const [timer, setTimer] = useState(0);
   const [curChoice, setCurChoice] = useState(null);
   const [curReason, setCurReason] = useState(null);
   const [rankOrder, setRankOrder] = useState(null);
 
-  // Personality-phase state
-  const [pIdx, setPIdx] = useState(0);
-  const [pAnswers, setPAnswers] = useState({}); // {qid: "text or letter"}
+  // Personality-phase state (seeded from a saved session on resume)
+  const [pIdx, setPIdx] = useState(savedSession ? (savedSession.pIdx || 0) : 0);
+  const [pAnswers, setPAnswers] = useState(savedSession ? (savedSession.pAnswers || {}) : {}); // {qid: "text or letter"}
   const [curText, setCurText] = useState("");
 
-  // Telemetry
-  const [tabSwitches, setTabSwitches] = useState(0);
-  const [log, setLog] = useState([]);
+  // Telemetry (seeded from a saved session on resume)
+  const [tabSwitches, setTabSwitches] = useState(savedSession ? (savedSession.tabSwitches || 0) : 0);
+  const [log, setLog] = useState(savedSession ? (savedSession.log || []) : []);
 
   // Submission state
   const [submitState, setSubmitState] = useState("idle"); // idle | sending | ok | error
@@ -503,7 +531,14 @@ function App(){
       .then(data => {
         const status = (data && data.token_status) || "unknown";
         if(status === "ok"){
-          setPhase("intro");
+          // If we have a saved in-progress session, skip intro/ready and
+          // re-fetch the (same) batch, then resume where the candidate left off.
+          if(savedSession && (savedSession.phase === "graded" || savedSession.phase === "personality")){
+            resumeRef.current = {phase: savedSession.phase};
+            setPhase("fetching");
+          } else {
+            setPhase("intro");
+          }
         } else {
           setGateReason(status);
           setPhase("gate");
@@ -539,10 +574,22 @@ function App(){
       .then(data => {
         if(!data) return;
         if(data && data.status === "ok" && data.batch){
-          setGradedQuestions(data.batch.graded || []);
+          const gq = data.batch.graded || [];
+          setGradedQuestions(gq);
           setPersonalityQuestions(data.batch.personality || []);
-          setLog(p => [...p, {event:"start", t:Date.now()}]);
-          setPhase("graded");
+          if(resumeRef.current){
+            // Resuming: jump back to the saved phase. Indices were restored from
+            // the saved session. If graded progress already ran past the end
+            // (e.g. pool changed), fall through to the personality phase.
+            let rp = resumeRef.current.phase;
+            if(rp === "graded" && gIdx >= gq.length) rp = "personality";
+            resumeRef.current = null;
+            setLog(p => [...p, {event:"resume", t:Date.now()}]);
+            setPhase(rp);
+          } else {
+            setLog(p => [...p, {event:"start", t:Date.now()}]);
+            setPhase("graded");
+          }
           return;
         }
         setGateReason((data && data.token_status && data.token_status !== "ok") ? data.token_status : "network_error");
@@ -559,6 +606,19 @@ function App(){
     if(phase==="graded") document.body.classList.add("in-graded");
     else document.body.classList.remove("in-graded");
   },[phase]);
+
+  // Persist progress to localStorage on every answer, so an accidental close
+  // (within the 2h window, same browser) can resume instead of starting over.
+  useEffect(()=>{
+    if(phase !== "graded" && phase !== "personality") return;
+    if(!token) return;
+    try {
+      window.localStorage.setItem(saveKey(token), JSON.stringify({
+        token, name, email, phase, gIdx, gAnswers, pIdx, pAnswers, tabSwitches, log,
+        savedAt: Date.now(),
+      }));
+    } catch(e){ /* storage full / disabled — fail silently, test still works */ }
+  },[phase, gIdx, gAnswers, pIdx, pAnswers, name, email, tabSwitches, log, token]);
 
   // Block copy/paste/right-click during graded phase, and silently log the attempt.
   // Logging is silent — the candidate sees no UI change. Lucas can review the
@@ -791,6 +851,7 @@ function App(){
     })
     .then(data => {
       if (data && data.status === "ok") {
+        clearSavedSession(token); // submitted successfully — no need to resume
         setSubmitState("ok");
         setPhase("complete");
       } else {
@@ -902,10 +963,12 @@ function App(){
             <h3 style={{fontFamily:"Outfit", fontSize:14, color:C.accent, margin:"0 0 14px", letterSpacing:1, textTransform:"uppercase"}}>Before you begin</h3>
             {[
               {icon:"⏱", t:"~35 questions in two sections. Each is individually timed. You cannot pause, go back, or retake."},
-              {icon:"🚫", t:"Please complete this independently. Outside help or external tools may make the result unusable."},
-              {icon:"🔇", t:"Find a quiet ~90-minute window. Avoid opening other apps or tabs."},
-              {icon:"🧠", t:"Use only the information provided in each prompt."},
-              {icon:"✍", t:"For open-text questions, express your own thinking clearly. Concrete answers are better than polished answers."},
+              {icon:"🖥", t:"Before you begin, close all other browser windows and apps. Keep only this tab open and do not switch tabs — switching away is logged and may invalidate your result."},
+              {icon:"🚫", t:"Do this on your own, with no help. There is no need to look anything up online: these questions test your reasoning and experience, not what you can search for."},
+              {icon:"📝", t:"You may use paper, a pen, and a calculator."},
+              {icon:"🧠", t:"Use only the information given in each question."},
+              {icon:"🙂", t:"You are not expected to answer everything, and we do not expect perfect answers. We are interested in how you think, relative to your background."},
+              {icon:"✍", t:"For open-text questions, write your own thinking clearly. Concrete answers beat polished ones."},
             ].map((r,i,arr)=>(
               <div key={i} style={{display:"flex", gap:12, alignItems:"flex-start", marginBottom:i<arr.length-1?12:0}}>
                 <span style={{fontSize:17, lineHeight:1.4}}>{r.icon}</span>
@@ -925,7 +988,7 @@ function App(){
               style={{width:"100%", boxSizing:"border-box", padding:"10px 14px", borderRadius:8, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:15, outline:"none"}}/>
           </div>
           <button disabled={!name.trim() || !email.trim()} onClick={()=>{ setPhase("ready"); setLog([{event:"intro_complete", t:Date.now(), token}]); }}
-            style={{width:"100%", padding:"15px 0", borderRadius:12, border:"none", background:`linear-gradient(135deg,${C.accent},${C.blue})`, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:16, cursor:name.trim()&&email.trim()?"pointer":"default", opacity:name.trim()&&email.trim()?1:.4, boxShadow:`0 4px 24px ${C.accent}33`}}>
+            style={{width:"100%", padding:"15px 0", borderRadius:12, border:"none", background:`linear-gradient(135deg,${C.accent},${C.blue})`, color:C.btnText, fontFamily:"Outfit", fontWeight:700, fontSize:16, cursor:name.trim()&&email.trim()?"pointer":"default", opacity:name.trim()&&email.trim()?1:.4, boxShadow:`0 4px 24px ${C.accent}33`}}>
             {"Continue →"}
           </button>
         </div>
@@ -951,9 +1014,10 @@ function App(){
             <h3 style={{fontFamily:"Outfit", fontSize:13, color:C.gold, margin:"0 0 14px", letterSpacing:1, textTransform:"uppercase"}}>Final reminders</h3>
             {[
               {icon:"⏱", t:"~35 questions. You cannot pause, go back, or retake."},
-              {icon:"🚫", t:"Please complete this independently. Outside help or external tools may make the result unusable."},
-              {icon:"🔇", t:"Find a quiet ~90-minute window. Avoid other apps or tabs."},
-              {icon:"🧠", t:"Use only the information provided in each prompt."},
+              {icon:"🖥", t:"Close other windows and apps now. Keep only this tab open and do not switch away — it is logged."},
+              {icon:"🚫", t:"On your own, with no help. There is no need to look anything up online."},
+              {icon:"📝", t:"Paper, a pen, and a calculator are allowed."},
+              {icon:"🙂", t:"You don't need to answer everything, and perfect answers aren't expected."},
             ].map((r,i,arr)=>(
               <div key={i} style={{display:"flex", gap:12, alignItems:"flex-start", marginBottom:i<arr.length-1?12:0}}>
                 <span style={{fontSize:17, lineHeight:1.4}}>{r.icon}</span>
@@ -962,7 +1026,7 @@ function App(){
             ))}
           </div>
           <button onClick={()=>setPhase("fetching")}
-            style={{width:"100%", padding:"15px 0", borderRadius:12, border:"none", background:`linear-gradient(135deg,${C.accent},${C.blue})`, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:16, cursor:"pointer", boxShadow:`0 4px 24px ${C.accent}33`, marginBottom:10}}>
+            style={{width:"100%", padding:"15px 0", borderRadius:12, border:"none", background:`linear-gradient(135deg,${C.accent},${C.blue})`, color:C.btnText, fontFamily:"Outfit", fontWeight:700, fontSize:16, cursor:"pointer", boxShadow:`0 4px 24px ${C.accent}33`, marginBottom:10}}>
             {"Begin assessment →"}
           </button>
           <button onClick={()=>setPhase("intro")}
@@ -1016,6 +1080,7 @@ function App(){
   // GRADED phase
   if(phase === "graded"){
     const q = gradedQuestions[gIdx];
+    if(!q) return null; // safety: index past end (e.g. resume after pool change)
     const totalGraded = gradedQuestions.length;
     const canSubmit = (() => {
       if(q.type === "single-choice" || q.type === "scenario-mcq" || q.type === "forced-choice") return !!curChoice;
@@ -1039,9 +1104,7 @@ function App(){
             <div style={{height:"100%", width:`${(gIdx/totalGraded)*100}%`, background:C.accent, borderRadius:2, transition:"width .3s"}}/>
           </div>
 
-          <CanvasText text={q.title} width={600} fontSize={20} fontWeight="600" color={C.text} lineHeight={1.3}/>
-          <div style={{height:8}}/>
-          <CanvasText text={q.prompt} width={600} fontSize={14} color={C.textDim} lineHeight={1.6}/>
+          <CanvasText text={q.prompt} width={600} fontSize={16} color={C.text} lineHeight={1.6}/>
           <div style={{height:18}}/>
 
           {q.render && renderVisual(q.render)}
@@ -1092,7 +1155,7 @@ function App(){
           )}
 
           <button onClick={()=>{ submittedRef.current = true; advanceGraded(false); }} disabled={!canSubmit}
-            style={{marginTop:24, width:"100%", padding:"13px 0", borderRadius:10, border:"none", background:C.accent, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:15, cursor:canSubmit?"pointer":"default", opacity:canSubmit?1:.35, transition:"opacity .2s"}}>
+            style={{marginTop:24, width:"100%", padding:"13px 0", borderRadius:10, border:"none", background:C.accent, color:C.btnText, fontFamily:"Outfit", fontWeight:700, fontSize:15, cursor:canSubmit?"pointer":"default", opacity:canSubmit?1:.35, transition:"opacity .2s"}}>
             {gIdx < totalGraded-1 ? "Submit & Next →" : "Continue to next section →"}
           </button>
           {/* Live focus-loss counter removed: scares honest candidates who
@@ -1106,6 +1169,7 @@ function App(){
   // PERSONALITY phase
   if(phase === "personality"){
     const q = personalityQuestions[pIdx];
+    if(!q) return null; // safety: index past end
     const totalP = personalityQuestions.length;
     const canSubmit = q.type === "open-text"
       ? curText.trim().length > 0
@@ -1124,9 +1188,7 @@ function App(){
             <div style={{height:"100%", width:`${(pIdx/totalP)*100}%`, background:C.purple, borderRadius:2, transition:"width .3s"}}/>
           </div>
 
-          <CanvasText text={q.title} width={600} fontSize={20} fontWeight="600" color={C.text} lineHeight={1.3}/>
-          <div style={{height:8}}/>
-          <CanvasText text={q.prompt} width={600} fontSize={14} color={C.textDim} lineHeight={1.6}/>
+          <CanvasText text={q.prompt} width={600} fontSize={16} color={C.text} lineHeight={1.6}/>
           <div style={{height:18}}/>
 
           {q.type === "open-text" && (
@@ -1145,7 +1207,7 @@ function App(){
           )}
 
           <button onClick={()=>{ submittedRef.current = true; advancePersonality(false); }} disabled={!canSubmit}
-            style={{marginTop:24, width:"100%", padding:"13px 0", borderRadius:10, border:"none", background:C.purple, color:C.bg, fontFamily:"Outfit", fontWeight:700, fontSize:15, cursor:canSubmit?"pointer":"default", opacity:canSubmit?1:.35, transition:"opacity .2s"}}>
+            style={{marginTop:24, width:"100%", padding:"13px 0", borderRadius:10, border:"none", background:C.purple, color:C.btnText, fontFamily:"Outfit", fontWeight:700, fontSize:15, cursor:canSubmit?"pointer":"default", opacity:canSubmit?1:.35, transition:"opacity .2s"}}>
             {pIdx < totalP-1 ? "Submit & Next →" : "Submit assessment"}
           </button>
         </div>
