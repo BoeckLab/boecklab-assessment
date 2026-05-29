@@ -79,6 +79,20 @@ function CanvasText({text,width=560,fontSize=14,color=C.text,fontFamily="Outfit"
   return <canvas ref={ref} style={{width,height:h,display:"block",userSelect:"none",WebkitUserSelect:"none",pointerEvents:"none"}}/>;
 }
 
+function CanvasBulletList({items,width=560}){
+  if(!items || !items.length) return null;
+  return (
+    <div style={{display:"flex", flexDirection:"column", gap:8, margin:"10px 0 16px"}}>
+      {items.map((item,i)=>(
+        <div key={i} style={{display:"grid", gridTemplateColumns:"26px 1fr", gap:8, alignItems:"start", background:C.surfaceHi, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px"}}>
+          <span style={{fontFamily:"DM Mono", fontSize:12, color:C.accent, lineHeight:"20px", textAlign:"center"}}>{i+1}</span>
+          <CanvasText text={item} width={width-58} fontSize={14} color={C.text} lineHeight={1.45}/>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ============================================================
    PRIMITIVE: GenericTable (SVG, uncopyable)
    Used for L01, L02, L06, MI06, MB04 -- any tabular data.
@@ -921,7 +935,7 @@ function App(){
       },
       expired: {
         title: "This link has expired",
-        body: "Each link is valid for 2 hours from the first time it is opened. This window has now passed. Please contact the lab if you need a new link.",
+        body: "Each link is valid for 2 hours after the candidate clicks Begin. This window has now passed. Please contact the lab if you need a new link.",
       },
       network_error: {
         title: "Connection problem",
@@ -962,9 +976,9 @@ function App(){
           <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:22, marginBottom:20}}>
             <h3 style={{fontFamily:"Outfit", fontSize:14, color:C.accent, margin:"0 0 14px", letterSpacing:1, textTransform:"uppercase"}}>Before you begin</h3>
             {[
-              {icon:"⏱", t:"~35 questions in two sections. Each is individually timed. You cannot pause, go back, or retake."},
+              {icon:"⏱", t:"The full assessment usually takes about 90 minutes. It contains ~35 questions in two sections; each question is individually timed. You cannot pause, go back, or retake."},
               {icon:"🖥", t:"Before you begin, close all other browser windows and apps. Keep only this tab open and do not switch tabs — switching away is logged and may invalidate your result."},
-              {icon:"🚫", t:"Do this on your own, with no help. There is no need to look anything up online: these questions test your reasoning and experience, not what you can search for."},
+              {icon:"🚫", t:"Complete this test on your own, with no external help, including LLMs or web search. We are assessing your scientific experience, reasoning, and judgement."},
               {icon:"📝", t:"You may use paper, a pen, and a calculator."},
               {icon:"🧠", t:"Use only the information given in each question."},
               {icon:"🙂", t:"You are not expected to answer everything, and we do not expect perfect answers. We are interested in how you think, relative to your background."},
@@ -1007,15 +1021,15 @@ function App(){
             </div>
             <h1 style={{fontFamily:"Outfit", fontWeight:700, fontSize:26, color:C.text, margin:"0 0 8px"}}>Ready to start, {name.split(" ")[0]}?</h1>
             <p style={{fontFamily:"Outfit", fontSize:14, color:C.textDim, margin:0, lineHeight:1.6}}>
-              The timer for the first question starts the moment you click Begin. Please make sure you are ready.
+              The 2-hour access window and the timer for the first question start when you click Begin. Please make sure you are ready.
             </p>
           </div>
           <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:22, marginBottom:20}}>
             <h3 style={{fontFamily:"Outfit", fontSize:13, color:C.gold, margin:"0 0 14px", letterSpacing:1, textTransform:"uppercase"}}>Final reminders</h3>
             {[
-              {icon:"⏱", t:"~35 questions. You cannot pause, go back, or retake."},
+              {icon:"⏱", t:"The full assessment usually takes about 90 minutes. You cannot pause, go back, or retake."},
               {icon:"🖥", t:"Close other windows and apps now. Keep only this tab open and do not switch away — it is logged."},
-              {icon:"🚫", t:"On your own, with no help. There is no need to look anything up online."},
+              {icon:"🚫", t:"Complete this test on your own, with no external help, including LLMs or web search. We are assessing your scientific experience, reasoning, and judgement."},
               {icon:"📝", t:"Paper, a pen, and a calculator are allowed."},
               {icon:"🙂", t:"You don't need to answer everything, and perfect answers aren't expected."},
             ].map((r,i,arr)=>(
@@ -1095,8 +1109,7 @@ function App(){
         <div style={{maxWidth:640, margin:"0 auto"}}>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
             <div style={{display:"flex", alignItems:"center", gap:10}}>
-              <span style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, background:C.surfaceHi, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.border}`}}>{gIdx+1} / {totalGraded}</span>
-              <span style={{fontFamily:"DM Mono", fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:1}}>{q.category}</span>
+              <span style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, background:C.surfaceHi, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.border}`}}>Question {gIdx+1} / {totalGraded}</span>
             </div>
             <Timer seconds={timer} total={q.timeLimit}/>
           </div>
@@ -1105,6 +1118,7 @@ function App(){
           </div>
 
           <CanvasText text={q.prompt} width={600} fontSize={16} color={C.text} lineHeight={1.6}/>
+          <CanvasBulletList items={q.bullets} width={600}/>
           <div style={{height:18}}/>
 
           {q.render && renderVisual(q.render)}
@@ -1180,7 +1194,7 @@ function App(){
         <div style={{maxWidth:640, margin:"0 auto"}}>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
             <div style={{display:"flex", alignItems:"center", gap:10}}>
-              <span style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, background:C.surfaceHi, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.border}`}}>Reflection {pIdx+1} / {totalP}</span>
+              <span style={{fontFamily:"DM Mono", fontSize:12, color:C.textMuted, background:C.surfaceHi, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.border}`}}>Question {pIdx+1} / {totalP}</span>
             </div>
             <Timer seconds={timer} total={q.timeLimit}/>
           </div>
