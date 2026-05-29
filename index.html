@@ -359,8 +359,8 @@ const colorL02 = (cell, ri, ci) => {
 };
 const colorL06 = (cell, ri, ci) => {
   if (ci === 0) return C.text;
-  if (cell === "R") return C.warn;
-  if (cell === "S") return C.accent;
+  if (String(cell).toLowerCase() === "high") return C.warn;
+  if (String(cell).toLowerCase() === "low") return C.accent;
   return C.textDim;
 };
 const colorMI06 = (cell, ri, ci) => {
@@ -390,9 +390,10 @@ const VISUAL_RENDERERS = {
   ),
   L06Table: () => (
     <GenericTable
-      headers={["Strain","A1","A2","A3","A4"]}
-      rows={[["S1","R","S","R","S"],["S2","S","R","R","S"],["S3","R","R","R","S"],["S4","S","S","R","S"]]}
+      headers={["Isolate","Drug A MIC","Drug B survival"]}
+      rows={[["I1","low","low"],["I2","high","low"],["I3","low","high"],["I4","high","high"]]}
       cellColor={colorL06}
+      colWidths={[90,170,180]}
       width={440}
     />
   ),
