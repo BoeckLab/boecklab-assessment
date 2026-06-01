@@ -534,6 +534,27 @@ function App(){
   const deadlineRef = useRef(null);
   const submittedRef = useRef(false);
   const lastFocusLossRef = useRef(0);
+  const curChoiceRef = useRef(curChoice);
+  const curReasonRef = useRef(curReason);
+  const rankOrderRef = useRef(rankOrder);
+  const curTextRef = useRef(curText);
+
+  const updateCurChoice = useCallback((value) => {
+    curChoiceRef.current = value;
+    setCurChoice(value);
+  }, []);
+  const updateCurReason = useCallback((value) => {
+    curReasonRef.current = value;
+    setCurReason(value);
+  }, []);
+  const updateRankOrder = useCallback((value) => {
+    rankOrderRef.current = value;
+    setRankOrder(value);
+  }, []);
+  const updateCurText = useCallback((value) => {
+    curTextRef.current = value;
+    setCurText(value);
+  }, []);
 
   // Pre-flight: when we have a token, ask the server whether it's still usable.
   // Runs once on mount. Result routes the user to intro (ok) or gate (other).
@@ -758,37 +779,41 @@ function App(){
     const q = gradedQuestions[gIdx];
     const elapsed = +((Date.now() - startRef.current) / 1000).toFixed(1);
     let value, chosenText = "";
+    const currentChoice = curChoiceRef.current;
+    const currentReason = curReasonRef.current;
+    const currentRankOrder = rankOrderRef.current;
+    const currentText = curTextRef.current;
     if(q.type === "single-choice" || q.type === "scenario-mcq" || q.type === "forced-choice"){
-      value = curChoice;
-      const opt = q.options.find(o => o.id === curChoice);
+      value = currentChoice;
+      const opt = q.options.find(o => o.id === currentChoice);
       if(opt) chosenText = opt.text;
     } else if(q.type === "estimate-reason"){
-      value = {estimate: curChoice, reasoning: curReason};
-      const optE = q.options.find(o => o.id === curChoice);
-      const optR = q.reasoning.find(r => r.id === curReason);
+      value = {estimate: currentChoice, reasoning: currentReason};
+      const optE = q.options.find(o => o.id === currentChoice);
+      const optR = q.reasoning.find(r => r.id === currentReason);
       chosenText = `est=${optE?optE.text:"(none)"} | reasoning=${optR?optR.text:"(none)"}`;
     } else if(q.type === "ranking"){
-      value = rankOrder || q.options.map(o => o.id);
+      value = currentRankOrder || q.options.map(o => o.id);
       chosenText = value.join(",");
     } else if(q.type === "open-text"){
-      value = curText;
+      value = currentText;
       chosenText = "";
     } else {
-      value = curChoice;
+      value = currentChoice;
     }
     const entry = {qid: q.qid, category: q.category, type: q.type, value, chosenText, elapsed, timedOut};
     setGAnswers(p => [...p, entry]);
     setLog(p => [...p, {event:"graded_answer", qid:q.qid, elapsed, timedOut, t:Date.now()}]);
-    setCurChoice(null);
-    setCurReason(null);
-    setRankOrder(null);
-    setCurText("");
+    updateCurChoice(null);
+    updateCurReason(null);
+    updateRankOrder(null);
+    updateCurText("");
     if(gIdx < gradedQuestions.length - 1){
       setGIdx(p => p + 1);
     } else {
       setPhase("personality");
     }
-  }, [gIdx, curChoice, curReason, rankOrder, curText, gradedQuestions]);
+  }, [gIdx, gradedQuestions, updateCurChoice, updateCurReason, updateRankOrder, updateCurText]);
 
   // ----- advance personality -----
   const advancePersonality = useCallback((timedOut=false) => {
@@ -796,24 +821,26 @@ function App(){
     const q = personalityQuestions[pIdx];
     const elapsed = +((Date.now() - startRef.current) / 1000).toFixed(1);
     let value;
+    const currentChoice = curChoiceRef.current;
+    const currentText = curTextRef.current;
     if(q.type === "open-text"){
-      value = curText;
+      value = currentText;
     } else {
-      const opt = q.options.find(o => o.id === curChoice);
-      value = curChoice;
+      const opt = q.options.find(o => o.id === currentChoice);
+      value = currentChoice;
       // record chosen text in the log for Lucas's reference
       setLog(p => [...p, {event:"personality_choice_text", qid:q.qid, text: opt ? opt.text : null, t:Date.now()}]);
     }
     setPAnswers(p => ({...p, [q.qid]: value}));
     setLog(p => [...p, {event:"personality_answer", qid:q.qid, elapsed, timedOut, t:Date.now()}]);
-    setCurChoice(null);
-    setCurText("");
+    updateCurChoice(null);
+    updateCurText("");
     if(pIdx < personalityQuestions.length - 1){
       setPIdx(p => p + 1);
     } else {
       setPhase("submitting");
     }
-  }, [pIdx, curChoice, curText, personalityQuestions]);
+  }, [pIdx, personalityQuestions, updateCurChoice, updateCurText]);
 
   // ----- submit -----
   useEffect(()=>{
@@ -1159,7 +1186,7 @@ function App(){
           {(q.type === "single-choice") && (
             <div style={{display:"flex", flexDirection:"column", gap:7}}>
               {q.options.map(opt => (
-                <OptionBtn key={opt.id} text={opt.text} selected={curChoice===opt.id} onClick={()=>setCurChoice(opt.id)}/>
+                <OptionBtn key={opt.id} text={opt.text} selected={curChoice===opt.id} onClick={()=>updateCurChoice(opt.id)}/>
               ))}
             </div>
           )}
@@ -1169,7 +1196,7 @@ function App(){
               <CanvasText text="YOUR ESTIMATE" width={160} fontSize={11} fontFamily="DM Mono" color={C.textMuted}/>
               <div style={{display:"flex", gap:8, flexWrap:"wrap", margin:"8px 0 18px"}}>
                 {q.options.map(opt => (
-                  <div key={opt.id} onClick={()=>setCurChoice(opt.id)} style={{background:curChoice===opt.id?C.accent+"15":C.surfaceHi, border:`1.5px solid ${curChoice===opt.id?C.accent:C.border}`, borderRadius:8, padding:"10px 16px", cursor:"pointer"}}>
+                  <div key={opt.id} onClick={()=>updateCurChoice(opt.id)} style={{background:curChoice===opt.id?C.accent+"15":C.surfaceHi, border:`1.5px solid ${curChoice===opt.id?C.accent:C.border}`, borderRadius:8, padding:"10px 16px", cursor:"pointer"}}>
                     <CanvasText text={opt.text} width={140} fontSize={13} fontFamily="DM Mono" color={curChoice===opt.id?C.accent:C.textDim}/>
                   </div>
                 ))}
@@ -1177,7 +1204,7 @@ function App(){
               <CanvasText text="BEST SUPPORTING REASONING" width={260} fontSize={11} fontFamily="DM Mono" color={C.textMuted}/>
               <div style={{display:"flex", flexDirection:"column", gap:7, marginTop:8}}>
                 {q.reasoning.map(r => (
-                  <div key={r.id} onClick={()=>setCurReason(r.id)} style={{background:curReason===r.id?C.blue+"15":C.surfaceHi, border:`1.5px solid ${curReason===r.id?C.blue:C.border}`, borderRadius:10, padding:"10px 14px", cursor:"pointer"}}>
+                  <div key={r.id} onClick={()=>updateCurReason(r.id)} style={{background:curReason===r.id?C.blue+"15":C.surfaceHi, border:`1.5px solid ${curReason===r.id?C.blue:C.border}`, borderRadius:10, padding:"10px 14px", cursor:"pointer"}}>
                     <CanvasText text={r.text} width={540} fontSize={12.5} color={curReason===r.id?C.text:C.textDim} lineHeight={1.5}/>
                   </div>
                 ))}
@@ -1186,11 +1213,11 @@ function App(){
           )}
 
           {q.type === "ranking" && (
-            <RankingInput items={q.options} value={rankOrder || q.options.map(o => o.id)} onChange={setRankOrder}/>
+            <RankingInput items={q.options} value={rankOrder || q.options.map(o => o.id)} onChange={updateRankOrder}/>
           )}
 
           {q.type === "open-text" && (
-            <textarea value={curText} onChange={e=>setCurText(e.target.value)}
+            <textarea value={curText} onChange={e=>updateCurText(e.target.value)}
               placeholder="Type your answer here..."
               autoFocus
               style={{width:"100%", boxSizing:"border-box", minHeight:200, padding:"14px 16px", borderRadius:10, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:14, lineHeight:1.6, fontFamily:"Outfit", outline:"none", resize:"vertical"}}/>
@@ -1234,7 +1261,7 @@ function App(){
           <div style={{height:18}}/>
 
           {q.type === "open-text" && (
-            <textarea value={curText} onChange={e=>setCurText(e.target.value)}
+            <textarea value={curText} onChange={e=>updateCurText(e.target.value)}
               placeholder="Type your answer here..."
               autoFocus
               style={{width:"100%", boxSizing:"border-box", minHeight:180, padding:"14px 16px", borderRadius:10, background:C.surfaceHi, border:`1px solid ${C.border}`, color:C.text, fontSize:14, lineHeight:1.6, fontFamily:"Outfit", outline:"none", resize:"vertical"}}/>
@@ -1243,7 +1270,7 @@ function App(){
           {(q.type === "scenario-mcq" || q.type === "forced-choice") && (
             <div style={{display:"flex", flexDirection:"column", gap:7}}>
               {q.options.map(opt => (
-                <OptionBtn key={opt.id} text={opt.text} selected={curChoice===opt.id} onClick={()=>setCurChoice(opt.id)}/>
+                <OptionBtn key={opt.id} text={opt.text} selected={curChoice===opt.id} onClick={()=>updateCurChoice(opt.id)}/>
               ))}
             </div>
           )}
